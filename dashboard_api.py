@@ -11,7 +11,7 @@ import json
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 
 from guardian_core import GuardianError, LiquityReader, classify_health
 
@@ -95,9 +95,18 @@ def _yield_data() -> dict[str, Any]:
     return {"venues": venues, "count": len(venues), "source": url}
 
 
-@app.get("/")
-def dashboard() -> FileResponse:
-    return FileResponse(STATIC_DIR / "index.html")
+@app.get("/", response_class=HTMLResponse)
+def dashboard():
+    index_file = STATIC_DIR / "index.html"
+    if index_file.is_file():
+        return FileResponse(index_file)
+    # Return a useful diagnostic instead of an opaque 500 if deployment packaging
+    # ever drops the frontend assets again.
+    return HTMLResponse(
+        "<h1>BOLD Guardian frontend missing</h1>"
+        "<p>The API is running, but <code>/app/static/index.html</code> was not deployed.</p>",
+        status_code=503,
+    )
 
 
 @app.get("/health")
