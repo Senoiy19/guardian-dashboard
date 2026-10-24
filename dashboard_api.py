@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 
 from guardian_core import GuardianError, LiquityReader, classify_health
+from rate_engine import MarketTrove, analyze_rate
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
@@ -33,6 +34,8 @@ app.add_middleware(
 
 _reader: LiquityReader | None = None
 _reader_checked_at = 0.0
+_rate_cache: dict[str, tuple[float, list[MarketTrove]]] = {}
+RATE_CACHE_SECONDS = int(os.getenv("RATE_CACHE_SECONDS", "300"))
 
 
 def reader() -> LiquityReader:
@@ -65,6 +68,25 @@ def _num(v: Any, digits: int = 2) -> float | None:
         return round(float(v), digits)
     except (ValueError, TypeError):
         return None
+
+
+
+def _branch_rate_market(branch: str) -> list[MarketTrove]:
+    now = time.monotonic()
+    cached = _rate_cache.get(branch)
+    if cached and now - cached[0] < RATE_CACHE_SECONDS:
+        return cached[1]
+    raw = reader().branch_rate_market(branch)
+    rows = [
+        MarketTrove(
+            debt_bold=Decimal(str(x["debt_bold"])),
+            rate_pct=Decimal(str(x["rate_pct"])),
+            last_rate_adj_time=int(x["last_rate_adj_time"]),
+        )
+        for x in raw
+    ]
+    _rate_cache[branch] = (now, rows)
+    return rows
 
 
 def _yield_data() -> dict[str, Any]:
@@ -129,9 +151,22 @@ def wallet_summary(wallet: str) -> dict[str, Any]:
         raise HTTPException(502, "Guardian could not complete the Liquity read") from exc
 
     items = []
+    markets: dict[str, list[MarketTrove]] = {}
     for p in positions:
         d = p.to_dict()
         d["health"] = classify_health(p)
+        try:
+            if p.branch not in markets:
+                markets[p.branch] = _branch_rate_market(p.branch)
+            market = markets[p.branch]
+            d["rate_analysis"] = analyze_rate(
+                debt_bold=Decimal(str(p.debt_bold)),
+                current_rate_pct=Decimal(str(p.annual_interest_rate_pct)),
+                last_rate_adj_time=int(p.last_interest_rate_adj_time),
+                market=market,
+            )
+        except Exception as exc:
+            d["rate_analysis"] = {"error": f"Rate market unavailable: {exc}"}
         items.append(d)
 
     total_debt = sum(Decimal(str(p.debt_bold)) for p in positions)

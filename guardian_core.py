@@ -119,6 +119,7 @@ class TrovePosition:
     batch_manager: str | None
     price_is_fallback: bool
     block_number: int
+    last_interest_rate_adj_time: int
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -354,7 +355,37 @@ class LiquityReader:
             collateral_price_usd=price, collateral_ratio_pct=cr, mcr_pct=mcr,
             liquidation_price_usd=liq_price, distance_to_liquidation_pct=distance,
             batch_manager=batch, price_is_fallback=fallback, block_number=block_number,
+            last_interest_rate_adj_time=int(latest[9]),
         )
+
+
+    def branch_rate_market(self, branch: str) -> list[dict[str, Any]]:
+        """Read active/zombie branch debt, rates and rate-adjustment timestamps.
+
+        This is intentionally read-only. The dashboard caches the result because a
+        complete branch snapshot requires one latest-Trove read per active/zombie Trove.
+        """
+        if branch not in BRANCHES:
+            raise GuardianError(f"Unknown collateral branch: {branch}")
+        tm, _, _, _ = self._contracts(branch)
+        count = int(self._retry(lambda: tm.functions.getTroveIdsCount().call()))
+        rows: list[dict[str, Any]] = []
+        for i in range(count):
+            trove_id = int(self._retry(lambda idx=i: tm.functions.getTroveFromTroveIdsArray(idx).call()))
+            try:
+                latest = self._retry(lambda tid=trove_id: tm.functions.getLatestTroveData(tid).call())
+            except RpcError:
+                continue
+            debt = _wad(int(latest[0]))
+            if debt <= 0:
+                continue
+            rows.append({
+                "trove_id": trove_id,
+                "debt_bold": debt,
+                "rate_pct": _pct_wad(int(latest[6])),
+                "last_rate_adj_time": int(latest[9]),
+            })
+        return rows
 
     def inspect_wallet(self, wallet: str) -> list[TrovePosition]:
         if not Web3.is_address(wallet):
