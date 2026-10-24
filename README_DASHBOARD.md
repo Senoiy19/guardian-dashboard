@@ -34,3 +34,16 @@ No Telegram token is required for the dashboard.
 The health labels are Guardian presentation labels, not official Liquity classifications. The existing Guardian core's thresholds are reused.
 
 The dashboard uses the same Trove-reading core as the Telegram Guardian, so the two interfaces do not maintain separate risk calculations.
+
+## Rate Intelligence V1
+
+Each discovered Trove now includes read-only loan-rate analysis:
+- current annual and monthly-equivalent BOLD interest cost
+- branch-local debt estimated to be ahead in Liquity V2 redemption ordering
+- Aggressive / Balanced / Defensive Guardian heuristic rates
+- estimated annual interest change versus the current rate
+- a "What needs your attention" summary
+
+The three Guardian modes are product heuristics, not Liquity protocol recommendations. They target roughly 10% / 25% / 50% of branch debt ahead in rate ordering. Liquity V2 redemptions prioritize lower interest rates; equal-rate ordering uses last-in-first-redeemed. Cross-branch redemption routing also depends on outside debt, so branch debt-ahead is context rather than a guarantee of safety.
+
+The branch market snapshot is cached for 300 seconds by default (`RATE_CACHE_SECONDS`). The first wallet lookup after cache expiry can be slower because Guardian reads the active branch Troves to build the rate market.

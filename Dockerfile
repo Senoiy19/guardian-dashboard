@@ -7,7 +7,7 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 # Copy Python/backend files first, then the frontend explicitly so a missing
 # static directory fails the image build instead of becoming a runtime 500.
 COPY *.py /app/
-COPY index.html /app/static/index.html
+COPY static/ /app/static/
 COPY README*.md /app/
 
 RUN test -f /app/static/index.html
